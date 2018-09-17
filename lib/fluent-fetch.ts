@@ -1,7 +1,13 @@
-import fetch, {Headers, Request} from 'isomorphic-fetch';
-import {URL} from 'url'
+import 'isomorphic-fetch';
+import assignURL from './util/assign-url';
+import serverAddress from './util/server-address';
 
-const assignURL = (url, parts) => Object.assign(new URL(url), parts).toString()
+Object.entries = (obj: object):  IterableIterator<Array<[string, any]>> => {
+  return {
+    [Symbol.iterator](),
+    next() => [],
+  }
+};
 
 const shortHandTypes = {
   html: 'text/html',
@@ -12,20 +18,25 @@ const shortHandTypes = {
   'form-data': 'application/x-www-form-urlencoded'
 };
 
+interface FluentRequestInit extends RequestInit {
+  url?: string;
+}
+
 
 export default class FluentRequest extends Request {
+  app: boolean|Function;
 
-  constructor(app, initOptions = {}) {
+  constructor(app, initOptions: FluentRequestInit = {}) {
     let url = app
-    this.app = false
     if (typeof app === 'function') {
-      this.app = app
       url = initOptions.url || serverAddress(app)
+    } else {
+      app = false
     }
     super(url, initOptions)
   }
 
-  clone(overrides) {
+  clone(overrides: FluentRequestInit = {}) {
     const initOptions = Object.assign({
       method: this.method,
       headers: this.headers,
@@ -75,21 +86,23 @@ export default class FluentRequest extends Request {
     })
   }
 
-  set(key, value) {
+  
+  set(key: object|string, value) {
     if (typeof key === 'object') {
-      for([key, value] of Object.entries(key)) this.headers.set(key, value)
+      for(const [objKey, value] of Object.entries(key)) {
+        this.headers.set(objKey, value)
       return this
     }
     this.headers.set(key, value)
     return this
   }
 
-  type(type) {
+  type(type: string) {
     this.set('Content-Type', shortHandTypes[type] || type)
     return this
   }
 
-  accept() {
+  accept(type: string) {
     this.set('Accept', shortHandTypes[type] || type)
     return this
   }
