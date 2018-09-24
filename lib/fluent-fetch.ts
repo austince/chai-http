@@ -8,13 +8,13 @@ if (typeof URLSearchParams === 'undefined') {
 }
 
 if (!Object.entries) {
-  Object.defineProperty(Object, 'entries', function(obj){
+  Object.defineProperty(Object, 'entries', function (obj) {
     var ownProps = Object.keys(obj),
-        i = ownProps.length,
-        resArray = new Array(i); // preallocate the Array
+      i = ownProps.length,
+      resArray = new Array(i); // preallocate the Array
     while (i--)
       resArray[i] = [ownProps[i], obj[ownProps[i]]];
-    
+
     return resArray;
   });
 }
@@ -32,12 +32,14 @@ interface FluentRequestInit extends RequestInit {
   url?: string;
 }
 
+class ResponseError extends Error {}
 
 export default class FluentRequest extends Request {
-  app: boolean|Function;
+  app: boolean | Function;
   url: string;
   body: ReadableStream;
   credentials: RequestCredentials
+  private responseFilter: (res: Response) => boolean
 
   constructor(app, initOptions: FluentRequestInit = {}) {
     let url = app
@@ -67,42 +69,42 @@ export default class FluentRequest extends Request {
   get(pathname: string) {
     return this.clone({
       method: 'GET',
-      url: assignURL(this.url, {pathname})
+      url: assignURL(this.url, { pathname })
     })
   }
 
   put(pathname: string) {
     return this.clone({
       method: 'PUT',
-      url: assignURL(this.url, {pathname})
+      url: assignURL(this.url, { pathname })
     })
   }
 
   post(pathname: string) {
     return this.clone({
       method: 'POST',
-      url: assignURL(this.url, {pathname})
+      url: assignURL(this.url, { pathname })
     })
   }
 
   delete(pathname: string) {
     return this.clone({
       method: 'DELETE',
-      url: assignURL(this.url, {pathname})
+      url: assignURL(this.url, { pathname })
     })
   }
 
   head(pathname: string) {
     return this.clone({
       method: 'HEAD',
-      url: assignURL(this.url, {pathname})
+      url: assignURL(this.url, { pathname })
     })
   }
 
-  
-  set(key: object|string, value) {
+
+  set(key: object | string, value) {
     if (typeof key === 'object') {
-      for(const [objKey, value] of Object.entries(key)) {
+      for (const [objKey, value] of Object.entries(key)) {
         this.headers.set(objKey, value)
       }
     } else if (typeof key === 'string') {
@@ -123,18 +125,18 @@ export default class FluentRequest extends Request {
 
   query(query: string[][] | Record<string, string> | string | URLSearchParams) {
     const queryParams = new URLSearchParams(query)
-    const {searchParams} = new URL(this.url)
+    const { searchParams } = new URL(this.url)
     for (const [key, value] of queryParams) {
       searchParams.set(key, value)
     }
-    this.url = assignURL(this.url, {searchParams})
+    this.url = assignURL(this.url, { searchParams })
     return this
   }
 
   // Breaking change from the SuperAgent api
   // Sort comparitor takes two tuples of form [param, value]
   sortQuery(comparitor?: (a: [string, string], b: [string, string]) => boolean) {
-    const {searchParams} = new URL(this.url)
+    const { searchParams } = new URL(this.url)
     const queryArr = Array.from(searchParams)
     if (comparitor) {
       queryArr.sort(comparitor)
@@ -142,7 +144,7 @@ export default class FluentRequest extends Request {
       queryArr.sort()
     }
     const sortedParams = new URLSearchParams(queryArr)
-    this.url = assignURL(this.url, {searchParams})
+    this.url = assignURL(this.url, { searchParams })
     return this
   }
 
@@ -166,8 +168,8 @@ export default class FluentRequest extends Request {
     // todo
   }
 
-  ok() {
-    // todo
+  ok(filter: (res: Response) => boolean) {
+    this.responseFilter = filter
   }
 
   timeout() {
@@ -203,7 +205,7 @@ export default class FluentRequest extends Request {
   }
 
 
-  send(data: string|object) {
+  send(data: string | object) {
     // todo: Handle things like FormData
     if (typeof data === 'string') {
       this.type(shortHandTypes.urlencoded)
@@ -225,12 +227,22 @@ export default class FluentRequest extends Request {
     return this
   }
 
+  private async handleResponse(response: Response) {
+    if (this.responseFilter !== undefined) {
+      if (!this.responseFilter(response)) {
+        throw new ResponseError(response.toString());
+      }
+    }
+    return response;
+  }
 
   then(resolve, reject) {
-    return fetch(this).then(resolve, reject)
+    return fetch(this)
+      .then(this.handleResponse.bind(this))
+      .then(resolve, reject)
   }
 
   end(resolve, reject) {
-    return fetch(this).then(resolve, reject)
+    return this.then(resolve, reject)
   }
 }
