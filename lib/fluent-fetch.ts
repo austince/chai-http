@@ -2,6 +2,11 @@ import 'isomorphic-fetch';
 import assignURL from './util/assign-url';
 import serverAddress from './util/server-address';
 
+if (typeof URLSearchParams === 'undefined') {
+  // Node 
+  const { URL, URLSearchParams } = require('url')
+}
+
 if (!Object.entries) {
   Object.defineProperty(Object, 'entries', function(obj){
     var ownProps = Object.keys(obj),
@@ -31,6 +36,8 @@ interface FluentRequestInit extends RequestInit {
 export default class FluentRequest extends Request {
   app: boolean|Function;
   url: string;
+  body: ReadableStream;
+  credentials: RequestCredentials
 
   constructor(app, initOptions: FluentRequestInit = {}) {
     let url = app
@@ -124,14 +131,26 @@ export default class FluentRequest extends Request {
     return this
   }
 
-  sortQuery() {
-    // todo
+  // Breaking change from the SuperAgent api
+  // Sort comparitor takes two tuples of form [param, value]
+  sortQuery(comparitor?: (a: [string, string], b: [string, string]) => boolean) {
+    const {searchParams} = new URL(this.url)
+    const queryArr = Array.from(searchParams)
+    if (comparitor) {
+      queryArr.sort(comparitor)
+    } else {
+      queryArr.sort()
+    }
+    const sortedParams = new URLSearchParams(queryArr)
+    this.url = assignURL(this.url, {searchParams})
+    return this
   }
 
   redirects(count: number) {
     // todo
   }
 
+  // Breaking: currently only supports basic auth
   auth(username: string, password: string) {
     const auth = `${username}:${password}`;
     const basicAuth = `Basic ${Buffer.from(auth).toString('base64')}`;
@@ -139,7 +158,8 @@ export default class FluentRequest extends Request {
   }
 
   withCredentials() {
-    // todo
+    this.credentials = 'include'
+    return this
   }
 
   retry() {
@@ -184,11 +204,25 @@ export default class FluentRequest extends Request {
 
 
   send(data: string|object) {
-    // todo
+    // todo: Handle things like FormData
     if (typeof data === 'string') {
-      this.type('application/x-www-form-urlencoded')
+      this.type(shortHandTypes.urlencoded)
+    } else {
+      // Default to json
+      this.type(shortHandTypes.json)
     }
 
+    // Either overwrite or append to the body
+    if (typeof this.body === 'string') {
+      // Concatenate form data
+      data = this.body + '&'
+    } else if (typeof this.body === 'object') {
+      data = Object.assign(this.body, data)
+    }
+
+    this.body = data as ReadableStream
+
+    return this
   }
 
 
@@ -199,5 +233,4 @@ export default class FluentRequest extends Request {
   end(resolve, reject) {
     return fetch(this).then(resolve, reject)
   }
-
 }
