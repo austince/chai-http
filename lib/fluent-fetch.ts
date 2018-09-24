@@ -2,12 +2,17 @@ import 'isomorphic-fetch';
 import assignURL from './util/assign-url';
 import serverAddress from './util/server-address';
 
-Object.entries = (obj: object):  IterableIterator<Array<[string, any]>> => {
-  return {
-    [Symbol.iterator](),
-    next() => [],
-  }
-};
+if (!Object.entries) {
+  Object.defineProperty(Object, 'entries', function(obj){
+    var ownProps = Object.keys(obj),
+        i = ownProps.length,
+        resArray = new Array(i); // preallocate the Array
+    while (i--)
+      resArray[i] = [ownProps[i], obj[ownProps[i]]];
+    
+    return resArray;
+  });
+}
 
 const shortHandTypes = {
   html: 'text/html',
@@ -25,6 +30,7 @@ interface FluentRequestInit extends RequestInit {
 
 export default class FluentRequest extends Request {
   app: boolean|Function;
+  url: string;
 
   constructor(app, initOptions: FluentRequestInit = {}) {
     let url = app
@@ -51,35 +57,35 @@ export default class FluentRequest extends Request {
     return new FluentRequest(this.app || this.url, initOptions)
   }
 
-  get(pathname) {
+  get(pathname: string) {
     return this.clone({
       method: 'GET',
       url: assignURL(this.url, {pathname})
     })
   }
 
-  put(pathname) {
+  put(pathname: string) {
     return this.clone({
       method: 'PUT',
       url: assignURL(this.url, {pathname})
     })
   }
 
-  post(pathname) {
+  post(pathname: string) {
     return this.clone({
       method: 'POST',
       url: assignURL(this.url, {pathname})
     })
   }
 
-  delete(pathname) {
+  delete(pathname: string) {
     return this.clone({
       method: 'DELETE',
       url: assignURL(this.url, {pathname})
     })
   }
 
-  head(pathname) {
+  head(pathname: string) {
     return this.clone({
       method: 'HEAD',
       url: assignURL(this.url, {pathname})
@@ -91,9 +97,10 @@ export default class FluentRequest extends Request {
     if (typeof key === 'object') {
       for(const [objKey, value] of Object.entries(key)) {
         this.headers.set(objKey, value)
-      return this
+      }
+    } else if (typeof key === 'string') {
+      this.headers.set(key, value)
     }
-    this.headers.set(key, value)
     return this
   }
 
@@ -107,10 +114,10 @@ export default class FluentRequest extends Request {
     return this
   }
 
-  query(query) {
-    query = new URLSearchParams(query)
+  query(query: string[][] | Record<string, string> | string | URLSearchParams) {
+    const queryParams = new URLSearchParams(query)
     const {searchParams} = new URL(this.url)
-    for (let [key, value] of query) {
+    for (const [key, value] of queryParams) {
       searchParams.set(key, value)
     }
     this.url = assignURL(this.url, {searchParams})
@@ -121,12 +128,14 @@ export default class FluentRequest extends Request {
     // todo
   }
 
-  redirects(count) {
+  redirects(count: number) {
     // todo
   }
 
-  auth() {
-    // todo
+  auth(username: string, password: string) {
+    const auth = `${username}:${password}`;
+    const basicAuth = `Basic ${Buffer.from(auth).toString('base64')}`;
+    return this.set('Authorization', basicAuth)
   }
 
   withCredentials() {
@@ -171,6 +180,15 @@ export default class FluentRequest extends Request {
 
   cert() {
     // todo
+  }
+
+
+  send(data: string|object) {
+    // todo
+    if (typeof data === 'string') {
+      this.type('application/x-www-form-urlencoded')
+    }
+
   }
 
 
