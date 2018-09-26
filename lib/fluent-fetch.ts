@@ -34,12 +34,15 @@ interface FluentRequestInit extends RequestInit {
 
 class ResponseError extends Error {}
 
+const pipe = async (res: Response) => res
+
 export default class FluentRequest extends Request {
   app: boolean | Function;
   url: string;
   body: ReadableStream;
   credentials: RequestCredentials
-  private responseFilter: (res: Response) => boolean
+  private responsePipe: (res: Response) => Promise<Response>;
+  private reqBodyPipe: (body: any) => Promise<any>
 
   constructor(app, initOptions: FluentRequestInit = {}) {
     let url = app
@@ -49,6 +52,23 @@ export default class FluentRequest extends Request {
       app = false
     }
     super(url, initOptions)
+
+    this.responsePipe = async (res) => res
+    this.reqBodyPipe = async (body) => body
+  }
+
+  private addReqBodyPipe(pipe: (body: any) => Promise<any>) {
+    const currentPipe = this.reqBodyPipe;
+    this.reqBodyPipe = (body) => {
+      return currentPipe(body).then(pipe)
+    }
+  }
+
+  private addResponsePipe(pipe: (res: Response) => Promise<Response>) {
+    const currentPipe = this.responsePipe;
+    this.responsePipe = (res) => {
+      return currentPipe(res).then(pipe)
+    }
   }
 
   clone(overrides: FluentRequestInit = {}) {
@@ -169,10 +189,15 @@ export default class FluentRequest extends Request {
   }
 
   ok(filter: (res: Response) => boolean) {
-    this.responseFilter = filter
+    this.addResponsePipe(async (res: Response) => {
+      if (!filter(res)) {
+        throw new ResponseError(res.toString());
+      }
+      return res;
+    });
   }
 
-  timeout() {
+  timeout(amount: number|{ response?: number, deadline?: number}) {
     // todo
   }
 
@@ -180,8 +205,8 @@ export default class FluentRequest extends Request {
     // todo
   }
 
-  serialize() {
-    // todo
+  serialize(fn: (body: any) => any) {
+    this.addReqBodyPipe(fn)
   }
 
   parse() {
@@ -204,6 +229,9 @@ export default class FluentRequest extends Request {
     // todo
   }
 
+  responseType(type: 'blob' | 'arraybuffer') {
+    // deprecate
+  }
 
   send(data: string | object) {
     // todo: Handle things like FormData
@@ -227,19 +255,12 @@ export default class FluentRequest extends Request {
     return this
   }
 
-  private async handleResponse(response: Response) {
-    if (this.responseFilter !== undefined) {
-      if (!this.responseFilter(response)) {
-        throw new ResponseError(response.toString());
-      }
-    }
-    return response;
-  }
-
-  then(resolve, reject) {
+  async then(resolve, reject) {
+    this.body = await this.reqBodyPipe(this.body)
     return fetch(this)
-      .then(this.handleResponse.bind(this))
-      .then(resolve, reject)
+      .then(res => this.responsePipe(res))
+      .then(resolve)
+      .catch(reject)
   }
 
   end(resolve, reject) {
